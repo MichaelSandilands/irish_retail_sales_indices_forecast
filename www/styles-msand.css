@@ -1,0 +1,150 @@
+.content-wrapper {
+  background-color: #222222;
+}
+
+h1 {
+  color: #FAD25A !important;
+}
+
+.with-border {
+    background-color: #333333;
+}
+
+.box-title {
+  color: #FAD25A;
+}
+
+.fas {
+  color: #FAD25A;
+}
+
+#sidebar_1 {
+  background-color: #333333;
+}
+
+.sidebar-toggle > a:active,a:focus,a:hover {
+    background-color: #222222 !important; 
+}
+
+.skin-blue .main-header .navbar {
+    background-color: #333333;
+}
+
+
+.skin-blue .main-header .logo {
+    background-color: #333333;
+}
+
+.skin-blue .main-header .logo:hover {
+  background-color: #333333;
+}
+
+.skin-blue .sidebar-menu>li.active>a, .skin-blue .sidebar-menu>li.menu-open>a, .skin-blue .sidebar-menu>li:hover>a {
+    color: #fff;
+    background: #222;
+}
+
+.skin-blue .sidebar-menu > li.active > a {
+  border-left-color: #FAD25A;
+}
+
+/* BUTTONS */
+.btn-default {
+    color: #FAD25A;
+    background-color: #333333;
+    border-color: #222222
+}
+
+.btn-default:focus,.btn-default.focus {
+    color: #FAD25A;
+    background-color: #333333;
+    border-color: #222222
+}
+
+.btn-default:hover {
+    color: #FAD25A;
+    background-color: #222222;
+    border-color: #222222
+}
+
+.btn-default:active,.btn-default.active,.open>.dropdown-toggle.btn-default {
+    color: #FAD25A;
+    background-color: #333333;
+    border-color: #222222
+}
+
+.btn-default:active:hover,.btn-default.active:hover,.open>.dropdown-toggle.btn-default:hover,.btn-default:active:focus,.btn-default.active:focus,.open>.dropdown-toggle.btn-default:focus,.btn-default:active.focus,.btn-default.active.focus,.open>.dropdown-toggle.btn-default.focus {
+    color: #FAD25A;
+    background-color: #222222;
+    border-color: #222222
+}
+
+.btn-default:active,.btn-default.active,.open>.dropdown-toggle.btn-default {
+    background-image: none
+}
+
+.btn-default.disabled:hover,.btn-default[disabled]:hover,fieldset[disabled] .btn-default:hover,.btn-default.disabled:focus,.btn-default[disabled]:focus,fieldset[disabled] .btn-default:focus,.btn-default.disabled.focus,.btn-default[disabled].focus,fieldset[disabled] .btn-default.focus {
+    background-color: #222222;
+    border-color: #222222
+}
+
+.btn-default .badge {
+    color: #FAD25A;
+    background-color: #ffffff
+}
+
+.bootstrap-switch-primary {
+    color: #333333 !important;
+    background-color: #FAD25A !important
+}
+
+.bootstrap-switch-default {
+    color: #333333 !important;
+    background-color: #DD8925 !important
+}
+
+.bootstrap-switch.bootstrap-switch-focused {
+    border-color: #222 !important
+}
+
+.bootstrap-switch .bootstrap-switch-label {
+    background: #333 !important
+}
+
+.irs--shiny .irs-bar {
+    border-top: 1px solid #FAD25A !important;
+    border-bottom: 1px solid #FAD25A !important;
+    background: #FAD25A !important;
+}
+
+.irs--shiny .irs-from, .irs--shiny .irs-to, .irs--shiny .irs-single {
+    border-color: 8px #333 !important;
+    color: #333 !important;
+    background-color: #FAD25A !important;
+}
+
+.irs--shiny .irs-line {
+    background: linear-gradient(to bottom, #dedede -50%, #333 150%) !important;
+    background-color: #333333 !important;
+    border: 1px solid #222222 !important;
+    border-radius: 8px;
+}
+
+.input-group .input-group-addon {
+    border-color: #222;
+    background-color: #333;
+}
+
+.dropdown-menu>li>a:hover {
+    color: #FAD25A;
+}
+
+.direct-chat-contacts {
+    background-color: #222 !important;
+}
+
+.bg-light-blue, .label-primary, .modal-primary .modal-body {
+    background-color: #FAD25A !important;
+    color: #333 !important;
+}
+

@@ -20,22 +20,21 @@ function(cso_id) {
   
 }
 rsi_clean_anomalies <-
-function(data, alpha = 0.5) {
+function(data, alpha = 0.1){
   
-  anomalies <- data %>% 
+  data %>% 
     group_by(statistic, nace_group) %>% 
     tk_anomaly_diagnostics(date, value, .message = FALSE, .alpha = alpha) %>% 
-    pull(anomaly) %>% 
-    unname()
-  
-  data <- data %>% 
-    mutate(covid_anomalies = anomalies) %>% 
-    mutate(value = ifelse(date >= "2020-01-01" & covid_anomalies == "Yes", NA_real_, value)) %>% 
-    select(-covid_anomalies) %>% 
-    group_by(statistic, nace_group) %>% 
-    mutate(value = ts_impute_vec(value, period = 12)) %>% 
-    ungroup()
-  
-  return(data)
+    mutate(
+      value_clean = ifelse(
+        anomaly == "Yes" & date >= "2020-01-01" & date < "2021-06-01", 
+        NA_real_, 
+        observed
+      ),
+      value_clean = ts_impute_vec(value_clean, period = 12)
+    ) %>% 
+    ungroup() %>% 
+    select(statistic, nace_group, date, observed, value_clean) %>% 
+    pivot_longer(c(observed, value_clean), names_to = "name") 
   
 }

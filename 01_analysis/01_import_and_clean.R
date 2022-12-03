@@ -81,37 +81,6 @@ rsi_monthly_convert_date_tbl %>%
   )
 
 
-
-# ANOMALIES ----
-
-rsi_monthly_convert_date_tbl %>% 
-  group_by(statistic, nace_group) %>% 
-  plot_anomaly_diagnostics(
-    date, value, .message = FALSE,
-    .trelliscope = TRUE
-  )
-
-# FLAG COVID ANOMALIES
-
-anomalies <- rsi_monthly_convert_date_tbl %>% 
-  group_by(statistic, nace_group) %>% 
-  tk_anomaly_diagnostics(date, value, .message = FALSE) %>% 
-  pull(anomaly) %>% 
-  unname()
-
-rsi_monthly_anomalies_tbl <- rsi_monthly_convert_date_tbl %>% 
-  mutate(covid_anomalies = anomalies) %>% 
-  mutate(value = ifelse(date >= "2020-01-01" & covid_anomalies == "Yes", NA_real_, value)) %>% 
-  select(-covid_anomalies)
-
-rsi_monthly_anomalies_tbl %>% 
-  group_by(statistic, nace_group) %>% 
-  mutate(value = ts_impute_vec(value, period = 12)) %>% 
-  plot_time_series(
-    date, value, .trelliscope = TRUE
-  )
-
-
 # IMPORT & CLEAN FUNCTION ----
 
 rsi_import_and_clean <- function(cso_id) {
@@ -135,35 +104,48 @@ rsi_import_and_clean <- function(cso_id) {
   
 }
 
-rsi_clean_anomalies <- function(data, alpha = 0.5) {
+rsi_monthly_tbl <- rsi_import_and_clean("RSM05")
+
+# FLAG COVID ANOMALIES
+
+rsi_monthly_clean_tbl <- rsi_monthly_tbl %>% 
+  group_by(statistic, nace_group) %>% 
+  tk_anomaly_diagnostics(date, value, .message = FALSE, .alpha = 0.1) %>% 
+  mutate(
+    value_clean = ifelse(
+      anomaly == "Yes" & date >= "2020-01-01" & date < "2022-01-01", 
+      NA_real_, 
+      observed
+      ),
+    value_clean = ts_impute_vec(value_clean, period = 12)
+    ) %>% 
+  select(statistic, nace_group, date, observed, value_clean) %>% 
+  pivot_longer(c(observed, value_clean))
+
+rsi_clean_anomalies <- function(data, alpha = 0.1){
   
-  anomalies <- data %>% 
+  data %>% 
     group_by(statistic, nace_group) %>% 
     tk_anomaly_diagnostics(date, value, .message = FALSE, .alpha = alpha) %>% 
-    pull(anomaly) %>% 
-    unname()
-  
-  data <- data %>% 
-    mutate(covid_anomalies = anomalies) %>% 
-    mutate(value = ifelse(date >= "2020-01-01" & covid_anomalies == "Yes", NA_real_, value)) %>% 
-    select(-covid_anomalies) %>% 
-    group_by(statistic, nace_group) %>% 
-    mutate(value = ts_impute_vec(value, period = 12)) %>% 
-    ungroup()
-  
-  return(data)
+    mutate(
+      value_clean = ifelse(
+        anomaly == "Yes" & date >= "2020-01-01" & date < "2021-06-01", 
+        NA_real_, 
+        observed
+      ),
+      value_clean = ts_impute_vec(value_clean, period = 12)
+    ) %>% 
+    ungroup() %>% 
+    select(statistic, nace_group, date, observed, value_clean) %>% 
+    pivot_longer(c(observed, value_clean), names_to = "name") 
   
 }
 
-rsi_monthly_tbl <- rsi_import_and_clean("RSM05") %>% 
-  rsi_clean_anomalies()
-
 rsi_monthly_tbl %>% 
-  group_by(statistic, nace_group) %>% 
-  plot_anomaly_diagnostics(
-    date, value, .message = FALSE,
-    .trelliscope = TRUE, .interactive = TRUE
-  )
+ rsi_clean_anomalies()
 
 
-dump(c("rsi_import_and_clean", "rsi_clean_anomalies"), "00_scripts/01_import_and_clean.R")
+
+
+dump(c("rsi_import_and_clean", "rsi_clean_anomalies"), 
+     "00_scripts/01_import_and_clean.R")

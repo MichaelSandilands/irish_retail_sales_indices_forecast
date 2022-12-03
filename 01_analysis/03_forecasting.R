@@ -11,9 +11,9 @@ library(lubridate)
 library(plotly)
 library(modeltime)
 library(skimr)
+library(baguette)
+library(rules)
 
-# Timing & Parallel Processing
-library(tictoc)
 
 source("00_scripts/01_import_and_clean.R")
 
@@ -24,12 +24,12 @@ FORECAST_HORIZON <- 12
 # Monthly series 
 full_data_tbl <- rsi_import_and_clean("RSM05") %>%
   rsi_clean_anomalies() %>% 
-  mutate(id = str_c(statistic, " - ", nace_group)) %>% 
-  select(id, date, value) %>% 
+  filter(name == "value_clean") %>% 
+  select(-name) %>% 
   # Log Transform Target
   mutate(value = log(value)) %>%
   # Group-Wise Feature Transformations
-  group_by(id) %>%
+  group_by(statistic, nace_group) %>%
   arrange(date) %>% 
   # Extending
   future_frame(date, .length_out = FORECAST_HORIZON, .bind_data = TRUE) %>%
@@ -119,7 +119,7 @@ linear_reg_spec <-
   set_engine("glmnet")
 
 nnet_spec <- 
-  mlp(hidden_units = tune(), penalty = 0.3, epochs = tune()) %>% 
+  mlp(hidden_units = tune(), penalty = 0.9, epochs = tune()) %>% 
   set_engine("nnet", MaxNWts = 2600) %>% 
   set_mode("regression")
 
@@ -174,25 +174,6 @@ xgb_param <-
   extract_parameter_set_dials() %>% 
   update(sample_size = sample_prop())
 
-lightgbm_spec <- 
-  boost_tree(tree_depth = tune(), learn_rate = tune(), loss_reduction = tune(), 
-             min_n = tune(), mtry = tune()) %>% 
-  set_engine("lightgbm") %>% 
-  set_mode("regression")
-
-catboost_spec <-
-  boost_tree(mtry = tune(), trees = tune(), min_n = tune(), tree_depth = tune(),
-             learn_rate = tune()) %>%
-  set_engine("catboost") %>% 
-  set_mode("regression")
-
-catboost_spec %>% extract_parameter_set_dials()
-
-workflow() %>% 
-  add_model(boost_tree() %>% set_engine("catboost") %>% set_mode("regression")) %>% 
-  add_recipe(recipe_no_date_spec) %>% 
-  fit(training(splits))
-
 cubist_spec <- 
   cubist_rules(committees = tune(), neighbors = tune()) %>% 
   set_engine("Cubist") 
@@ -203,55 +184,52 @@ date <-
   workflow_set(
     preproc = list(date = recipe_spec), 
     models = list(
-      PROPHET = prophet_spec
-      # PROPHET_BOOST = prophet_boost_spec
+      PROPHET = prophet_spec,
+      PROPHET_BOOST = prophet_boost_spec
     )
   ) %>% 
-  option_add(param_info = prophet_param, id = "date_PROPHET")
-  # option_add(param_info = prophet_boost_param, id = "date_PROPHET_BOOST")
+  option_add(param_info = prophet_param, id = "date_PROPHET") %>% 
+  option_add(param_info = prophet_boost_param, id = "date_PROPHET_BOOST")
 
 no_date <- 
   workflow_set(
     preproc = list(no_date = recipe_no_date_spec), 
     models = list(
-      # GLMNET        = linear_reg_spec,
-      # NNET          = nnet_spec,
-      # EARTH         = mars_spec,
-      # SVM_RBF       = svm_r_spec,
-      # SVM_POLY      = svm_p_spec,
-      # KNN           = knn_spec,
-      # DECISION_TREE = cart_spec,
-      # BAGGED_TREE   = bag_cart_spec,
-      # RANDOM_FOREST = rf_spec,
-      # XGBOOST       = xgb_spec,
-      LIGHTGBM      = lightgbm_spec,
-      CATBOOST      = catboost_spec
-      # CUBIST        = cubist_spec
+      GLMNET        = linear_reg_spec,
+      NNET          = nnet_spec,
+      EARTH         = mars_spec,
+      SVM_RBF       = svm_r_spec,
+      SVM_POLY      = svm_p_spec,
+      KNN           = knn_spec,
+      DECISION_TREE = cart_spec,
+      BAGGED_TREE   = bag_cart_spec,
+      RANDOM_FOREST = rf_spec,
+      XGBOOST       = xgb_spec,
+      CUBIST        = cubist_spec
     )
-  )
-  # option_add(param_info = nnet_param, id = "no_date_NNET") 
-# option_add(param_info = xgb_param, id = "no_date_XGBOOST")
+  ) %>% 
+  option_add(param_info = nnet_param, id = "no_date_NNET") %>% 
+  option_add(param_info = xgb_param, id = "no_date_XGBOOST")
 
 all_workflows <- 
   bind_rows(date, no_date) %>% 
   mutate(wflow_id = wflow_id %>% str_remove_all("(^date_)|^no_date_"))
 
-doParallel::registerDoParallel(cores = 8)
+doParallel::registerDoParallel(cores = 16)
 
 grid_ctrl <-
   control_grid(
     save_pred = TRUE,
     parallel_over = "everything",
-    save_workflow = TRUE, 
-    verbose = TRUE, pkgs = c("bonsai", "treesnip")
+    save_workflow = TRUE
   )
 
 grid_results <-
-  no_date %>%
+  all_workflows %>%
   workflow_map(
     seed = 1991,
     resamples = resamples_cv,
-    grid = 10,
+    grid = 30,
     control = grid_ctrl
   )
 
@@ -262,6 +240,7 @@ grid_results <- read_rds("00_models/grid_results.rds")
 rank_results(grid_results) %>% 
   group_by(wflow_id) %>% 
   dplyr::slice(1) %>% 
+  ungroup() %>% 
   arrange(mean)
 
 g <- autoplot(
@@ -287,10 +266,8 @@ best_results <-
         extract_workflow_set_result(.x) %>% 
         select_best(metric = "rmse"))
 
-best_results[[4]] <- grid_results %>% 
-  mutate(wflow_id = str_remove(wflow_id, "no_date_")) %>% 
-  extract_workflow_set_result("NNET") %>% 
-  select_best(metric = "rmse")
+
+
 
 # * ACCURACY CHECK ----
 
@@ -307,36 +284,39 @@ submodels_tbl <- modeltime_table(
   grid_results %>% extract_workflow("BAGGED_TREE") %>% finalize_workflow(best_results[[10]]) %>% fit(training(splits)),
   grid_results %>% extract_workflow("RANDOM_FOREST") %>% finalize_workflow(best_results[[11]]) %>% fit(training(splits)),
   grid_results %>% extract_workflow("XGBOOST") %>% finalize_workflow(best_results[[12]]) %>% fit(training(splits)),
-  grid_results %>% extract_workflow("LIGHTGBM") %>% finalize_workflow(best_results[[13]]) %>% fit(training(splits)),
-  grid_results %>% extract_workflow("CUBIST") %>% finalize_workflow(best_results[[14]]) %>% fit(training(splits))
+  grid_results %>% extract_workflow("CUBIST") %>% finalize_workflow(best_results[[13]]) %>% fit(training(splits))
 ) %>% 
   update_model_description(6, "SVM - RBF") %>%
   update_model_description(7, "SVM - POLY") %>%
   update_model_description(9, "DECISION TREE") %>%
-  update_model_description(9, "BAG TREE")
+  update_model_description(10, "BAG TREE") %>% 
+  update_model_description(11, "RANDOM FOREST")
 
-write_rds(submodels_tbl, "00_models/submodels_log_value_tbl.rds")
+write_rds(submodels_tbl, "00_models/submodels_tbl.rds")
 
 submodels_tbl <- read_rds("00_models/submodels_tbl.rds")
 
 submodels_calibration_tbl <- submodels_tbl %>% 
   modeltime_calibrate(testing(splits))
 
-submodels_calibration_tbl %>% 
+all_model_results <- submodels_calibration_tbl %>% 
   modeltime_accuracy() %>% 
   arrange(rmse)
 
-submodels_calibration_tbl %>% 
-  modeltime_forecast(
-    new_data = testing(splits),
-    actual_data = data_prepared_tbl, 
-    keep_data = TRUE
-  ) %>% 
-  group_by(id) %>% 
-  plot_modeltime_forecast(
-    .conf_interval_show = FALSE, .trelliscope = TRUE
-  )
+best_model_list <- list(
+  best_prophet_boost = grid_results %>% extract_workflow("PROPHET_BOOST") %>% finalize_workflow(best_results[[2]]),
+  best_svm_rbf       = grid_results %>% extract_workflow("SVM_RBF") %>% finalize_workflow(best_results[[6]]), 
+  best_knn           = grid_results %>% extract_workflow("KNN") %>% finalize_workflow(best_results[[8]]),
+  best_bagged_tree   = grid_results %>% extract_workflow("BAGGED_TREE") %>% finalize_workflow(best_results[[10]]),
+  best_random_forest = grid_results %>% extract_workflow("RANDOM_FOREST") %>% finalize_workflow(best_results[[11]]),
+  best_xgboost       = grid_results %>% extract_workflow("XGBOOST") %>% finalize_workflow(best_results[[12]]), 
+  best_cubist        = grid_results %>% extract_workflow("CUBIST") %>% finalize_workflow(best_results[[13]]) 
+) 
 
-install.packages('devtools')
-devtools::install_url('https://github.com/catboost/catboost/releases/download/v1.1.1/catboost-R-Windows-1.1.1.tgz', INSTALL_opts = c("--no-multiarch", "--no-test-load"))
+
+
+
+write_rds(best_model_list, "00_models/best_model_list.rds")
+
+
 
