@@ -56,7 +56,7 @@ box_data_preprocessing_server <- function(id, data) {
                 label   = "Choose How Aggressively the Anomalies are Cleaned",
                 min     = 0, 
                 max     = 1, 
-                value   = 0.1
+                value   = 1
               )
             ),
             br(),
@@ -88,7 +88,7 @@ box_data_preprocessing_server <- function(id, data) {
         if(input$clean_anomalies_switch) {
           
           data <- data %>% 
-            rsi_clean_anomalies(alpha = input$clean_anomalies_slider) %>% 
+            rsi_clean_anomalies(alpha = input$clean_anomalies_slider/10) %>% 
             filter(!(name == "value_clean" & (date < "2020-01-01" | date >= "2021-06-01"))) %>% 
             mutate(name = name %>% str_replace_all("_", " ") %>% str_to_title()) 
           
@@ -103,7 +103,7 @@ box_data_preprocessing_server <- function(id, data) {
         list(
           log_transform_switch   = reactive({ input$log_transform_switch }),
           clean_anomalies_switch = reactive({ input$clean_anomalies_switch }),
-          clean_anomalies_slider = reactive({ input$clean_anomalies_slider }),
+          clean_anomalies_slider = reactive({ input$clean_anomalies_slider / 10 }),
           processed_data         = processed_data 
         )
       )

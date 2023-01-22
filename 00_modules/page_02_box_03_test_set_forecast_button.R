@@ -61,130 +61,138 @@ box_test_set_server <- function(id, data, rsi_monthly_tbl,
       observeEvent(input$run_test_forecast, {
         
         # req(input$test_horizon)
-        
-        if("name" %in% colnames(data())) {
+        withProgress(message = 'Running Test Forecast', value = 0, {
           
-          df <- data() %>% 
-            pivot_wider(names_from = name, values_from = value) %>%
-            mutate(value = ifelse(!is.na(`Value Clean`), `Value Clean`, Observed)) %>% 
-            select(-Observed, -`Value Clean`)
-          
-        } else {
-          
-          df <- data()
-          
-        }
-        
-        rv$full_data_tbl <- rsi_data_engineering(df, forecast_horizon = input$test_horizon)
-        
-        rv$data_prepared_tbl <- rv$full_data_tbl %>%
-          filter(!is.na(value)) %>% 
-          drop_na()
-        
-        if(clean_anomalies()) {
-          
-          if(log_transform()) {
+          if("name" %in% colnames(data())) {
             
-            rv$join_tbl <- rsi_monthly_tbl %>% mutate(value = log(value))
+            
+            df <- data() %>% 
+              pivot_wider(names_from = name, values_from = value) %>%
+              mutate(value = ifelse(!is.na(`Value Clean`), `Value Clean`, Observed)) %>% 
+              select(-Observed, -`Value Clean`)
             
           } else {
             
-            rv$join_tbl <- rsi_monthly_tbl
+            df <- data()
             
           }
           
-          rv$actual_data_tbl <- rv$data_prepared_tbl %>%
-            select(-value) %>%
-            left_join(rv$join_tbl, by = c("statistic", "nace_group", "date"))
+          incProgress(0.2, detail = "Data Preprocessing")
           
-        } else {
+          rv$full_data_tbl <- rsi_data_engineering(df, forecast_horizon = input$test_horizon)
           
-          rv$actual_data_tbl <- rv$data_prepared_tbl
+          rv$data_prepared_tbl <- rv$full_data_tbl %>%
+            filter(!is.na(value)) %>% 
+            drop_na()
           
-        }
-        
-        rv$future_tbl <- rv$full_data_tbl %>%
-          filter(is.na(value))
-        
-        rv$splits <- rv$data_prepared_tbl %>%
-          time_series_split(date, assess = input$test_horizon, cumulative = TRUE)
-        
-        rv$recipe_spec <- recipe(value ~ ., data = training(rv$splits)) %>%
-          step_timeseries_signature(date) %>%
-          step_rm(matches("(.xts$)|(.iso$)|(week)|(day)|(hour)|(minute)|(second)|(am.pm)")) %>%
-          step_normalize(date_index.num, date_year) %>%
-          step_dummy(all_nominal_predictors(), one_hot = TRUE) %>%
-          step_zv(all_predictors())
-        
-        rv$fitted_wflw_list <- list(
-          prophet_boost = best_models[[1]] %>%
-            update_recipe(rv$recipe_spec) %>%
-            fit(training(rv$splits))
-        ) %>%
-          append(
-            best_models[2:7] %>%
-              map(~ .x %>%
-                    update_recipe(rv$recipe_spec %>% step_rm(date)) %>%
-                    fit(training(rv$splits))
-              )
-          )
-        
-        rv$submodels_tbl <- as_modeltime_table(rv$fitted_wflw_list)
-        
-        rv$modeltime_ensemble_tbl <- modeltime_table(
-          ensemble_average(rv$submodels_tbl)
-        )
-        
-        rv$full_modeltime_tbl <- rv$modeltime_ensemble_tbl %>% 
-          combine_modeltime_tables(rv$submodels_tbl) %>%
-          modeltime_calibrate(testing(rv$splits))
-        
-        if(log_transform()) {
+          if(clean_anomalies()) {
+            
+            if(log_transform()) {
+              
+              rv$join_tbl <- rsi_monthly_tbl %>% mutate(value = log(value))
+              
+            } else {
+              
+              rv$join_tbl <- rsi_monthly_tbl
+              
+            }
+            
+            rv$actual_data_tbl <- rv$data_prepared_tbl %>%
+              select(-value) %>%
+              left_join(rv$join_tbl, by = c("statistic", "nace_group", "date"))
+            
+          } else {
+            
+            rv$actual_data_tbl <- rv$data_prepared_tbl
+            
+          }
           
-          rv$full_accuracy_tbl <- rv$full_modeltime_tbl %>%
-            mutate(.calibration_data = map(.calibration_data, .f = function(tbl) {
-              tbl %>%
-                mutate(
-                  .actual     = exp(.actual),
-                  .prediction = exp(.prediction),
-                  .residuals  = .actual - .prediction
+          rv$future_tbl <- rv$full_data_tbl %>%
+            filter(is.na(value))
+          
+          rv$splits <- rv$data_prepared_tbl %>%
+            time_series_split(date, assess = input$test_horizon, cumulative = TRUE)
+          
+          rv$recipe_spec <- recipe(value ~ ., data = training(rv$splits)) %>%
+            step_timeseries_signature(date) %>%
+            step_rm(matches("(.xts$)|(.iso$)|(week)|(day)|(hour)|(minute)|(second)|(am.pm)")) %>%
+            step_normalize(date_index.num, date_year) %>%
+            step_dummy(all_nominal_predictors(), one_hot = TRUE) %>%
+            step_zv(all_predictors())
+          
+          incProgress(0.2, detail = "Fitting Training Data (This will take a few min)")
+          
+          rv$fitted_wflw_list <- list(
+            prophet_boost = best_models[[1]] %>%
+              update_recipe(rv$recipe_spec) %>%
+              fit(training(rv$splits))
+          ) %>%
+            append(
+              best_models[2:7] %>%
+                map(~ .x %>%
+                      update_recipe(rv$recipe_spec %>% step_rm(date)) %>%
+                      fit(training(rv$splits))
                 )
-            })) %>%
-            modeltime_accuracy() %>% 
-            mutate(across(mae:rsq, ~ round(.x, 2)))
-          
-        } else {
-          
-          rv$full_accuracy_tbl <- rv$full_modeltime_tbl %>%
-            modeltime_accuracy() %>% 
-            mutate(across(mae:rsq, ~ round(.x, 2)))
-          
-        }
-        
-        if(log_transform()) {
-          
-          rv$test_forecast_tbl <- rv$full_modeltime_tbl %>%
-            modeltime_forecast(
-              new_data    = testing(rv$splits),
-              actual_data = rv$actual_data_tbl,
-              keep_data   = TRUE
-            ) %>%
-            mutate(
-              across(.cols = c(.value, .conf_lo, .conf_hi),
-                     .fns  = function(x) exp(x))
             )
           
-        } else {
+          rv$submodels_tbl <- as_modeltime_table(rv$fitted_wflw_list)
           
-          rv$test_forecast_tbl <- rv$full_modeltime_tbl %>%
-            modeltime_forecast(
-              new_data    = testing(rv$splits),
-              actual_data = rv$actual_data_tbl,
-              keep_data   = TRUE
-            )
+          rv$modeltime_ensemble_tbl <- modeltime_table(
+            ensemble_average(rv$submodels_tbl)
+          )
           
-        }
-        
+          incProgress(0.4, detail = "Fitting Testing Data")
+          
+          rv$full_modeltime_tbl <- rv$modeltime_ensemble_tbl %>% 
+            combine_modeltime_tables(rv$submodels_tbl) %>%
+            modeltime_calibrate(testing(rv$splits))
+          
+          if(log_transform()) {
+            
+            rv$full_accuracy_tbl <- rv$full_modeltime_tbl %>%
+              mutate(.calibration_data = map(.calibration_data, .f = function(tbl) {
+                tbl %>%
+                  mutate(
+                    .actual     = exp(.actual),
+                    .prediction = exp(.prediction),
+                    .residuals  = .actual - .prediction
+                  )
+              })) %>%
+              modeltime_accuracy() %>% 
+              mutate(across(mae:rsq, ~ round(.x, 2)))
+            
+          } else {
+            
+            rv$full_accuracy_tbl <- rv$full_modeltime_tbl %>%
+              modeltime_accuracy() %>% 
+              mutate(across(mae:rsq, ~ round(.x, 2)))
+            
+          }
+          
+          if(log_transform()) {
+            
+            rv$test_forecast_tbl <- rv$full_modeltime_tbl %>%
+              modeltime_forecast(
+                new_data    = testing(rv$splits),
+                actual_data = rv$actual_data_tbl,
+                keep_data   = TRUE
+              ) %>%
+              mutate(
+                across(.cols = c(.value, .conf_lo, .conf_hi),
+                       .fns  = function(x) exp(x))
+              )
+            
+          } else {
+            
+            rv$test_forecast_tbl <- rv$full_modeltime_tbl %>%
+              modeltime_forecast(
+                new_data    = testing(rv$splits),
+                actual_data = rv$actual_data_tbl,
+                keep_data   = TRUE
+              )
+            
+          }
+        })
         
       }, ignoreNULL = TRUE)
       
@@ -194,7 +202,6 @@ box_test_set_server <- function(id, data, rsi_monthly_tbl,
           test_accuracy_tbl = reactive({ rv$full_accuracy_tbl })
         )
       )
-      
     })
   
 }
